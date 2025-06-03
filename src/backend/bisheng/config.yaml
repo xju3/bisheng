@@ -25,7 +25,7 @@ celery_redis_url: "redis://localhost:6379/2"
 # 知识库的milvus和es配置  支持使用 !env ${PATH} 填写环境变量的值, 若环境变量不存在则会报错
 vector_stores:
   milvus:
-    connection_args: '{"host":"milvus","port":"19530","user":"","password":"","secure":false}'
+    connection_args: '{"host":"localhost","port":"19530","user":"","password":"","secure":false}'
     is_partition: "true"
     partition_suffix: "1"
   elasticsearch:

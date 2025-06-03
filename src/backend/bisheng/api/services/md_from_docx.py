@@ -84,8 +84,6 @@ def handler(cache_dir, file_name):
     file_name (str): 输入的 Word 文档路径。
     knowledge_id (str): 知识 ID，用于生成输出文件名。
     """
-
-    # /Users/tju/Library/Caches/bisheng/bisheng/4d78ebe25ecc7751a1bb8df2dd5c8abad734a785551314366a14f
     doc_id = str(uuid4())
     md_file_name = f"{cache_dir}/{doc_id}.md"
     local_image_dir = f"{cache_dir}/{doc_id}"
