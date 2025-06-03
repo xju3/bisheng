@@ -38,8 +38,8 @@ object_storage:
   minio:
     schema: "false"
     cert_check: "false"
-    endpoint: "http://localhost:9000"
-    sharepoint: "http://localhost:9000"
+    endpoint: "localhost:9000"
+    sharepoint: "localhost:9000"
     access_key: "minioadmin"
     secret_key: "minioadmin"
     public_bucket: "bisheng" # 公共bucket，存储平台上一些需要持久化的文件。会设置为可公开访问
