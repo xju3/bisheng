@@ -86,10 +86,10 @@ def file_copy_celery(param: json) -> str:
 
 
 def copy_normal(
-        one: KnowledgeFile,
-        source_knowledge: Knowledge,
-        target_knowledge: Knowledge,
-        op_user_id: int,
+    one: KnowledgeFile,
+    source_knowledge: Knowledge,
+    target_knowledge: Knowledge,
+    op_user_id: int,
 ):
     one_dict = one.model_dump()
     one_dict.pop("id")
@@ -144,10 +144,10 @@ def copy_normal(
 
 
 def copy_qa(
-        qa: QAKnowledge,
-        source_knowledge: Knowledge,
-        target_knowledge: Knowledge,
-        op_user_id: int,
+    qa: QAKnowledge,
+    source_knowledge: Knowledge,
+    target_knowledge: Knowledge,
+    op_user_id: int,
 ):
     one_dict = qa.model_dump()
     one_dict.pop("id")
@@ -170,12 +170,14 @@ def copy_qa(
 
 
 def copy_vector(
-        source_konwledge: Knowledge,
-        target_knowledge: Knowledge,
-        source_file_id: int,
-        target_file_id: int,
+    source_konwledge: Knowledge,
+    target_knowledge: Knowledge,
+    source_file_id: int,
+    target_file_id: int,
 ):
     # 迁移 vectordb
+    from bisheng.api.services.knowledge_imp import decide_vectorstores
+
     embedding = FakeEmbedding()
     source_col = source_konwledge.collection_name
     source_milvus: Milvus = decide_vectorstores(source_col, "Milvus", embedding)
@@ -248,9 +250,11 @@ def insert_es(li: List, target: ElasticKeywordsSearch):
 
 
 @bisheng_celery.task(time_limit=settings.celery_task.knowledge_file_time_limit)
-def parse_knowledge_file_celery(file_id: int, preview_cache_key: str = None, callback_url: str = None):
-    """ 异步解析一个入库成功的文件 """
-    with logger.contextualize(trace_id=f'parse_file_{file_id}'):
+def parse_knowledge_file_celery(
+    file_id: int, preview_cache_key: str = None, callback_url: str = None
+):
+    """异步解析一个入库成功的文件"""
+    with logger.contextualize(trace_id=f"parse_file_{file_id}"):
         logger.info("parse_knowledge_file_celery start file_id={}", file_id)
         try:
             _parse_knowledge_file(file_id, preview_cache_key, callback_url)
@@ -258,7 +262,9 @@ def parse_knowledge_file_celery(file_id: int, preview_cache_key: str = None, cal
             logger.error("parse_knowledge_file_celery error: {}", str(e))
 
 
-def _parse_knowledge_file(file_id: int, preview_cache_key: str = None, callback_url: str = None):
+def _parse_knowledge_file(
+    file_id: int, preview_cache_key: str = None, callback_url: str = None
+):
     db_file = KnowledgeFileDao.get_file_by_ids([file_id])
     if not db_file:
         logger.error("file_id={} not found in db", file_id)
@@ -279,17 +285,19 @@ def _parse_knowledge_file(file_id: int, preview_cache_key: str = None, callback_
     # 获取切分规则
     file_rule = FileProcessBase(**json.loads(db_file.split_rule))
     logger.debug("parse_knowledge_file_celery_start", file_id)
-    process_file_task(db_knowledge,
-                      db_files=[db_file],
-                      separator=file_rule.separator,
-                      separator_rule=file_rule.separator_rule,
-                      chunk_size=file_rule.chunk_size,
-                      chunk_overlap=file_rule.chunk_overlap,
-                      callback_url=callback_url,
-                      extra_metadata=db_file.extra_meta,
-                      preview_cache_keys=preview_cache_key,
-                      retain_images=file_rule.retain_images,
-                      enable_formula=file_rule.enable_formula,
-                      force_ocr=file_rule.force_ocr,
-                      filter_page_header_footer=file_rule.filter_page_header_footer)
+    process_file_task(
+        db_knowledge,
+        db_files=[db_file],
+        separator=file_rule.separator,
+        separator_rule=file_rule.separator_rule,
+        chunk_size=file_rule.chunk_size,
+        chunk_overlap=file_rule.chunk_overlap,
+        callback_url=callback_url,
+        extra_metadata=db_file.extra_meta,
+        preview_cache_keys=preview_cache_key,
+        retain_images=file_rule.retain_images,
+        enable_formula=file_rule.enable_formula,
+        force_ocr=file_rule.force_ocr,
+        filter_page_header_footer=file_rule.filter_page_header_footer,
+    )
     logger.debug("parse_knowledge_file_celery_over", file_id)
