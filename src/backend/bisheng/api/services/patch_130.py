@@ -91,8 +91,8 @@ def convert_file_to_md(
             local_image_dir,
             doc_id,
         ) = html_handler(CACHE_DIR, input_file_name)
-        if not file_name.endswith("mhtml"):
-            local_image_dir = None
+        # if not file_name.endswith("mhtml"):
+        # local_image_dir = None
     return replace_image_url(
         md_file_name, local_image_dir, doc_id, knowledge_id=knowledge_id
     )
