@@ -2,7 +2,6 @@ import json
 import os
 from typing import List
 
-from bisheng.api.services.knowledge_imp import decide_vectorstores
 from bisheng.core.celery_app import celery_app
 from bisheng.database.models.knowledge import Knowledge, KnowledgeDao, KnowledgeTypeEnum
 from bisheng.database.models.knowledge_file import (
@@ -225,6 +224,7 @@ def copy_vector(
     target_file_id: int,
 ):
     # 迁移 vectordb
+    from bisheng.api.services.knowledge_imp import decide_vectorstores
     embedding = FakeEmbedding()
     source_col = source_konwledge.collection_name
     source_milvus: Milvus = decide_vectorstores(source_col, "Milvus", embedding)
