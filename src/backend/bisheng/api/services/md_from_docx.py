@@ -1,7 +1,6 @@
 import pypandoc
 from loguru import logger
 from pathlib import Path
-from fastapi import UploadFile
 from uuid import uuid4
 
 try:
