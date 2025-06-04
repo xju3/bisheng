@@ -32,8 +32,7 @@ from bisheng.api.v1.schemas import (
     FileProcessBase,
     KnowledgeFileOne,
     KnowledgeFileProcess,
-    UpdatePreviewFileChunk,
-    ExcelRule,
+    UpdatePreviewFileChunk, ExcelRule,
 )
 from bisheng.cache.redis import redis_client
 from bisheng.cache.utils import file_download
@@ -53,7 +52,7 @@ from bisheng.database.models.knowledge import (
 from bisheng.database.models.knowledge_file import (
     KnowledgeFile,
     KnowledgeFileDao,
-    KnowledgeFileStatus,
+    KnowledgeFileStatus, ParseType,
 )
 from bisheng.database.models.llm_server import LLMDao, LLMModelType
 from bisheng.database.models.role_access import AccessType, RoleAccessDao
@@ -72,13 +71,13 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def get_knowledge(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_type: KnowledgeTypeEnum,
-        name: str = None,
-        page: int = 1,
-        limit: int = 10,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_type: KnowledgeTypeEnum,
+            name: str = None,
+            page: int = 1,
+            limit: int = 10,
     ) -> (List[KnowledgeRead], int):
         if not login_user.is_admin():
             knowledge_id_extra = []
@@ -114,7 +113,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def convert_knowledge_read(
-        cls, login_user: UserPayload, knowledge_list: List[Knowledge]
+            cls, login_user: UserPayload, knowledge_list: List[Knowledge]
     ) -> List[KnowledgeRead]:
         db_user_ids = {one.user_id for one in knowledge_list}
         db_user_info = UserDao.get_user_by_ids(list(db_user_ids))
@@ -135,7 +134,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def get_knowledge_info(
-        cls, request: Request, login_user: UserPayload, knowledge_id: List[int]
+            cls, request: Request, login_user: UserPayload, knowledge_id: List[int]
     ) -> List[KnowledgeRead]:
         db_knowledge = KnowledgeDao.get_list_by_ids(knowledge_id)
         filter_knowledge = db_knowledge
@@ -144,7 +143,7 @@ class KnowledgeService(KnowledgeUtils):
             for one in db_knowledge:
                 # 判断用户是否有权限
                 if login_user.access_check(
-                    one.user_id, str(one.id), AccessType.KNOWLEDGE
+                        one.user_id, str(one.id), AccessType.KNOWLEDGE
                 ):
                     filter_knowledge.append(one)
         if not filter_knowledge:
@@ -154,7 +153,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def create_knowledge(
-        cls, request: Request, login_user: UserPayload, knowledge: KnowledgeCreate
+            cls, request: Request, login_user: UserPayload, knowledge: KnowledgeCreate
     ) -> Knowledge:
         # 设置默认的is_partition
         knowledge.is_partition = (
@@ -216,7 +215,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def create_knowledge_hook(
-        cls, request: Request, login_user: UserPayload, knowledge: Knowledge
+            cls, request: Request, login_user: UserPayload, knowledge: Knowledge
     ):
         # 查询下用户所在的用户组
         user_group = UserGroupDao.get_user_group(login_user.user_id)
@@ -241,7 +240,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def update_knowledge(
-        cls, request: Request, login_user: UserPayload, knowledge: KnowledgeUpdate
+            cls, request: Request, login_user: UserPayload, knowledge: KnowledgeUpdate
     ) -> KnowledgeRead:
         db_knowledge = KnowledgeDao.query_by_id(knowledge.knowledge_id)
         if not db_knowledge:
@@ -249,7 +248,7 @@ class KnowledgeService(KnowledgeUtils):
 
         # judge access
         if not login_user.access_check(
-            db_knowledge.user_id, str(db_knowledge.id), AccessType.KNOWLEDGE_WRITE
+                db_knowledge.user_id, str(db_knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -271,18 +270,18 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def delete_knowledge(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_id: int,
-        only_clear: bool = False,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_id: int,
+            only_clear: bool = False,
     ):
         knowledge = KnowledgeDao.query_by_id(knowledge_id)
         if not knowledge:
             raise NotFoundError.http_exception()
 
         if not login_user.access_check(
-            knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE_WRITE
+                knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -331,7 +330,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def delete_knowledge_hook(
-        cls, request: Request, login_user: UserPayload, knowledge: Knowledge
+            cls, request: Request, login_user: UserPayload, knowledge: Knowledge
     ):
         logger.info(
             f"delete_knowledge_hook id={knowledge.id}, user: {login_user.user_id}"
@@ -364,7 +363,7 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def get_preview_file_chunk(
-        cls, request: Request, login_user: UserPayload, req_data: KnowledgeFileProcess
+            cls, request: Request, login_user: UserPayload, req_data: KnowledgeFileProcess
     ) -> (str, str, List[FileChunk], Any):
         """
         0：解析模式，uns 或者 local
@@ -374,7 +373,7 @@ class KnowledgeService(KnowledgeUtils):
         """
         knowledge = KnowledgeDao.query_by_id(req_data.knowledge_id)
         if not login_user.access_check(
-            knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
+                knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -408,7 +407,7 @@ class KnowledgeService(KnowledgeUtils):
             enable_formula=req_data.enable_formula,
             filter_page_header_footer=req_data.filter_page_header_footer,
             retain_images=req_data.retain_images,
-            excel_rule=excel_rule,
+            excel_rule=excel_rule
         )
         res = []
         cache_map = {}
@@ -418,7 +417,7 @@ class KnowledgeService(KnowledgeUtils):
 
         # 默认是源文件的地址
         file_share_url = file_path
-        if file_ext == "doc":
+        if file_ext == 'doc':
             new_file_path = f"{filepath.split('.')[0]}.docx"
             if os.path.exists(new_file_path):
                 with open(filepath, "rb") as f:
@@ -428,8 +427,8 @@ class KnowledgeService(KnowledgeUtils):
                 )
             else:
                 logger.warning(f"convert doc to docx failed: {file_name}")
-                file_share_url = ""
-        elif file_ext in ["ppt", "pptx"]:
+                file_share_url = ''
+        elif file_ext in ['ppt', 'pptx']:
             new_file_path = f"{filepath.split('.')[0]}.pdf"
             if os.path.exists(new_file_path):
                 with open(filepath, "rb") as f:
@@ -439,7 +438,7 @@ class KnowledgeService(KnowledgeUtils):
                 )
             else:
                 logger.warning(f"convert pdf to pdf failed: {file_name}")
-                file_share_url = ""
+                file_share_url = ''
 
         # 存入缓存
         cls.save_preview_cache(cache_key, mapping=cache_map)
@@ -450,11 +449,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def update_preview_file_chunk(
-        cls, request: Request, login_user: UserPayload, req_data: UpdatePreviewFileChunk
+            cls, request: Request, login_user: UserPayload, req_data: UpdatePreviewFileChunk
     ):
         knowledge = KnowledgeDao.query_by_id(req_data.knowledge_id)
         if not login_user.access_check(
-            knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
+                knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -470,11 +469,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def delete_preview_file_chunk(
-        cls, request: Request, login_user: UserPayload, req_data: UpdatePreviewFileChunk
+            cls, request: Request, login_user: UserPayload, req_data: UpdatePreviewFileChunk
     ):
         knowledge = KnowledgeDao.query_by_id(req_data.knowledge_id)
         if not login_user.access_check(
-            knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
+                knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -483,23 +482,21 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def save_knowledge_file(
-        cls, login_user: UserPayload, req_data: KnowledgeFileProcess
+            cls, login_user: UserPayload, req_data: KnowledgeFileProcess
     ):
         """处理上传的文件, 只上传到minio和mysql"""
         knowledge = KnowledgeDao.query_by_id(req_data.knowledge_id)
         if not knowledge:
             raise NotFoundError.http_exception()
         if not login_user.access_check(
-            knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
+                knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
         failed_files = []
         # 处理每个文件
         process_files = []
         preview_cache_keys = []
-        split_rule_dict = req_data.model_dump(
-            include=set(list(FileProcessBase.model_fields.keys()))
-        )
+        split_rule_dict = req_data.model_dump(include=set(list(FileProcessBase.model_fields.keys())))
         for one in req_data.file_list:
             # 上传源文件，创建数据记录
             db_file = cls.process_one_file(login_user, knowledge, one, split_rule_dict)
@@ -519,11 +516,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def process_knowledge_file(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        background_tasks: BackgroundTasks,
-        req_data: KnowledgeFileProcess,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            background_tasks: BackgroundTasks,
+            req_data: KnowledgeFileProcess,
     ) -> List[KnowledgeFile]:
         """处理上传的文件"""
         knowledge, failed_files, process_files, preview_cache_keys = (
@@ -532,16 +529,14 @@ class KnowledgeService(KnowledgeUtils):
 
         # 异步处理文件解析和入库, 如果通过cache_key可以获取到数据，则使用cache中的数据来进行入库操作
         for index, one in enumerate(process_files):
-            file_worker.parse_knowledge_file_celery.delay(
-                one.id, preview_cache_keys[index], req_data.callback_url
-            )
+            file_worker.parse_knowledge_file_celery.delay(one.id, preview_cache_keys[index], req_data.callback_url)
 
         cls.upload_knowledge_file_hook(request, login_user, knowledge, process_files)
         return failed_files + process_files
 
     @classmethod
     def sync_process_knowledge_file(
-        cls, request: Request, login_user: UserPayload, req_data: KnowledgeFileProcess
+            cls, request: Request, login_user: UserPayload, req_data: KnowledgeFileProcess
     ) -> List[KnowledgeFile]:
         """同步处理上传的文件"""
         knowledge, failed_files, process_files, preview_cache_keys = (
@@ -568,11 +563,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def retry_files(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        background_tasks: BackgroundTasks,
-        req_data: dict,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            background_tasks: BackgroundTasks,
+            req_data: dict,
     ):
         db_file_retry = req_data.get("file_objs")
         if not db_file_retry:
@@ -586,37 +581,52 @@ class KnowledgeService(KnowledgeUtils):
         if not knowledge:
             raise NotFoundError.http_exception()
         if not login_user.access_check(
-            knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
+                knowledge.user_id, str(knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
         res = []
+
         req_data["knowledge_id"] = knowledge.id
-        split_rule = FileProcessBase(**req_data).__dict__
         for file in db_files:
-            # file exist
             input_file = id2input.get(file.id)
+
+            # file exist
+            file.object_name = input_file.get("object_name", file.object_name)
+            file_preview_cache_key = KnowledgeUtils.get_preview_cache_key(
+                file.knowledge_id, input_file.get("file_path", "")
+            )
+
+            if file.object_name.startswith('tmp'):
+                # 把临时文件移动到正式目录
+                new_object_name = f"original/{file.id}.{file.object_name.split('.')[-1]}"
+                minio_client.copy_object(file.object_name, new_object_name,
+                                         bucket_name=minio_client.tmp_bucket,
+                                         target_bucket_name=minio_client.bucket)
+                file.object_name = new_object_name
+
             if input_file["remark"] and "对应已存在文件" in input_file["remark"]:
                 file.file_name = input_file["remark"].split(" 对应已存在文件 ")[0]
                 file.remark = ""
-                # 覆盖, 使用前端传入的
-                file.split_rule = json.dumps(split_rule)
-            else:
-                # 重试
-                file.split_rule = input_file["split_rule"]
-            file.status = 1  # 解析中
+
+            file.split_rule = input_file["split_rule"]
+            file.status = KnowledgeFileStatus.PROCESSING.value  # 解析中
 
             file = KnowledgeFileDao.update(file)
-            res.append(file)
-        cls.upload_knowledge_file_hook(request, login_user, knowledge, res)
+            res.append([file, file_preview_cache_key])
+        tmp = []
+        for one_file in res:
+            file_worker.retry_knowledge_file_celery.delay(one_file[0].id, one_file[1], None)
+            tmp.append(one_file[0])
+        cls.upload_knowledge_file_hook(request, login_user, knowledge, tmp)
         return []
 
     @classmethod
     def upload_knowledge_file_hook(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge: Knowledge,
-        file_list: List[KnowledgeFile],
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge: Knowledge,
+            file_list: List[KnowledgeFile],
     ):
         logger.info(
             f"act=upload_knowledge_file_hook user={login_user.user_name} knowledge_id={knowledge.id}"
@@ -633,11 +643,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def process_one_file(
-        cls,
-        login_user: UserPayload,
-        knowledge: Knowledge,
-        file_info: KnowledgeFileOne,
-        split_rule: Dict,
+            cls,
+            login_user: UserPayload,
+            knowledge: Knowledge,
+            file_info: KnowledgeFileOne,
+            split_rule: Dict,
     ) -> KnowledgeFile:
         """处理上传的文件"""
         # download original file
@@ -646,7 +656,7 @@ class KnowledgeService(KnowledgeUtils):
 
         uuid_file_name = file_name.split(".")[0]
         file_extension_name = file_name.split(".")[-1]
-        original_file_name = redis_client.get(uuid_file_name)
+        original_file_name = redis_client.get(uuid_file_name) or file_name
         # 是否包含重复文件
         content_repeat = KnowledgeFileDao.get_file_by_condition(
             md5_=md5_, knowledge_id=knowledge.id
@@ -660,14 +670,14 @@ class KnowledgeService(KnowledgeUtils):
             file_type = file_name.rsplit(".", 1)[-1]
             obj_name = f"tmp/{db_file.id}.{file_type}"
             db_file.object_name = obj_name
-            db_file.remark = f"{file_name} 对应已存在文件 {old_name}"
+            db_file.remark = f"{original_file_name} 对应已存在文件 {old_name}"
             # 上传到minio，不修改数据库，由前端决定是否覆盖，覆盖的话调用重试接口
             with open(filepath, "rb") as file:
                 minio_client.upload_tmp(db_file.object_name, file.read())
             db_file.status = KnowledgeFileStatus.FAILED.value
             return db_file
 
-        if file_extension_name in ["xls", "xlsx", "csv"] and not file_info.excel_rule:
+        if file_extension_name in ['xls', 'xlsx', 'csv'] and not file_info.excel_rule:
             file_info.excel_rule = ExcelRule()
         split_rule["excel_rule"] = file_info.excel_rule.model_dump()
         str_split_rule = json.dumps(split_rule)
@@ -690,22 +700,22 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def get_knowledge_files(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_id: int,
-        file_name: str = None,
-        status: int = None,
-        page: int = 1,
-        page_size: int = 10,
-        file_ids: List[int] = None,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_id: int,
+            file_name: str = None,
+            status: int = None,
+            page: int = 1,
+            page_size: int = 10,
+            file_ids: List[int] = None,
     ) -> (List[KnowledgeFileResp], int, bool):
         db_knowledge = KnowledgeDao.query_by_id(knowledge_id)
         if not db_knowledge:
             raise NotFoundError.http_exception()
 
         if not login_user.access_check(
-            db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE
+                db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -765,14 +775,14 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def delete_knowledge_file(
-        cls, request: Request, login_user: UserPayload, file_ids: List[int]
+            cls, request: Request, login_user: UserPayload, file_ids: List[int]
     ):
         knowledge_file = KnowledgeFileDao.select_list(file_ids)
         if not knowledge_file:
             raise NotFoundError.http_exception()
         db_knowledge = KnowledgeDao.query_by_id(knowledge_file[0].knowledge_id)
         if not login_user.access_check(
-            db_knowledge.user_id, str(db_knowledge.id), AccessType.KNOWLEDGE_WRITE
+                db_knowledge.user_id, str(db_knowledge.id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -789,11 +799,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def delete_knowledge_file_hook(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_id: int,
-        file_list: List[KnowledgeFile],
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_id: int,
+            file_list: List[KnowledgeFile],
     ):
         logger.info(
             f"act=delete_knowledge_file_hook user={login_user.user_name} knowledge_id={knowledge_id}"
@@ -809,21 +819,21 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def get_knowledge_chunks(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_id: int,
-        file_ids: List[int] = None,
-        keyword: str = None,
-        page: int = None,
-        limit: int = None,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_id: int,
+            file_ids: List[int] = None,
+            keyword: str = None,
+            page: int = None,
+            limit: int = None,
     ) -> (List[FileChunk], int):
         db_knowledge = KnowledgeDao.query_by_id(knowledge_id)
         if not db_knowledge:
             raise NotFoundError.http_exception()
 
         if not login_user.access_check(
-            db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE
+                db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -889,21 +899,21 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def update_knowledge_chunk(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_id: int,
-        file_id: int,
-        chunk_index: int,
-        text: str,
-        bbox: str,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_id: int,
+            file_id: int,
+            chunk_index: int,
+            text: str,
+            bbox: str,
     ):
         db_knowledge = KnowledgeDao.query_by_id(knowledge_id)
         if not db_knowledge:
             raise NotFoundError.http_exception()
 
         if not login_user.access_check(
-            db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE_WRITE
+                db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -971,19 +981,19 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def delete_knowledge_chunk(
-        cls,
-        request: Request,
-        login_user: UserPayload,
-        knowledge_id: int,
-        file_id: int,
-        chunk_index: int,
+            cls,
+            request: Request,
+            login_user: UserPayload,
+            knowledge_id: int,
+            file_id: int,
+            chunk_index: int,
     ):
         db_knowledge = KnowledgeDao.query_by_id(knowledge_id)
         if not db_knowledge:
             raise NotFoundError.http_exception()
 
         if not login_user.access_check(
-            db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE_WRITE
+                db_knowledge.user_id, str(knowledge_id), AccessType.KNOWLEDGE_WRITE
         ):
             raise UnAuthorizedError.http_exception()
 
@@ -1027,14 +1037,40 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def get_file_share_url(
-        cls, request: Request, login_user: UserPayload, file_id: int
+            cls, request: Request, login_user: UserPayload, file_id: int
     ) -> str:
-        download_url = minio_client.get_share_link(str(file_id))
+        file = KnowledgeFileDao.get_file_by_ids([file_id])
+        if not file:
+            raise NotFoundError.http_exception()
+        file = file[0]
+        # 130版本以前的文件解析
+        if file.parse_type in [ParseType.LOCAL.value, ParseType.UNS.value]:
+            download_url = minio_client.get_share_link(str(file_id))
+        else:
+            # 130版本以后的文件解析逻辑，只有源文件和预览文件，不再都转pdf了
+            if file.file_name.endswith(".doc"):
+                download_url = cls.get_file_share_url_with_empty(file.object_name.replace(".doc", ".docx"))
+            elif file.file_name.endswith(('.ppt', '.pptx')):
+                download_url = cls.get_file_share_url_with_empty(
+                    file.object_name.replace(".ppt", ".pdf").replace(".pptx", ".pdf"))
+            else:
+                download_url = cls.get_file_share_url_with_empty(file.object_name)
         return download_url
 
     @classmethod
+    def get_file_share_url_with_empty(cls, object_name: str) -> str:
+        """
+        获取文件的分享链接
+        :param object_name: 文件在minio中的对象名称
+        :return: 文件的分享链接
+        """
+        if minio_client.object_exists(minio_client.bucket, object_name):
+            return minio_client.get_share_link(object_name, minio_client.bucket)
+        return ""
+
+    @classmethod
     def get_file_bbox(
-        cls, request: Request, login_user: UserPayload, file_id: int
+            cls, request: Request, login_user: UserPayload, file_id: int
     ) -> Any:
         file_info = KnowledgeFileDao.select_list([file_id])
         file_info = file_info[0]
@@ -1053,11 +1089,11 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def copy_knowledge(
-        cls,
-        request,
-        background_tasks: BackgroundTasks,
-        login_user: UserPayload,
-        knowledge: Knowledge,
+            cls,
+            request,
+            background_tasks: BackgroundTasks,
+            login_user: UserPayload,
+            knowledge: Knowledge,
     ) -> Any:
         knowledge.state = 2
         KnowledgeDao.update_one(knowledge)
@@ -1084,14 +1120,14 @@ class KnowledgeService(KnowledgeUtils):
 
     @classmethod
     def judge_qa_knowledge_write(
-        cls, login_user: UserPayload, qa_knowledge_id: int
+            cls, login_user: UserPayload, qa_knowledge_id: int
     ) -> Knowledge:
         db_knowledge = KnowledgeDao.query_by_id(qa_knowledge_id)
         # 查询当前知识库，是否有写入权限
         if not db_knowledge:
             raise ServerError.http_exception(msg="当前知识库不可用，返回上级目录")
         if not login_user.access_check(
-            db_knowledge.user_id, str(qa_knowledge_id), AccessType.KNOWLEDGE
+                db_knowledge.user_id, str(qa_knowledge_id), AccessType.KNOWLEDGE
         ):
             raise UnAuthorizedError.http_exception()
 
