@@ -56,13 +56,12 @@ def generate_markdown_table_string(
         )
     return "\n".join(md_lines)
 
-
-# --- Core DataFrame to Markdown Processing Logic (Refactored) ---
+# --- 这是最终正确的版本，请用它替换整个函数 ---
 def process_dataframe_to_markdown_files(
     df, source_name, num_header_rows, rows_per_markdown, output_dir, append_header=True
 ):
     """
-    Processes a single DataFrame (from an Excel sheet or CSV) into paginated Markdown files.
+    根据“包含起始和结束行”的规则，处理DataFrame并生成Markdown文件。
     """
     if df.empty:
         logger.warning(f"  源 '{source_name}' 的数据DataFrame为空，跳过Markdown生成。")
@@ -70,67 +69,55 @@ def process_dataframe_to_markdown_files(
 
     num_columns = df.shape[1]
 
-    if num_header_rows[0] < 0:
-        logger.error(
-            f"错误：源 '{source_name}' 的表头行数 ({num_header_rows[0]}) 不能为负。跳过。"
-        )
-        return
-    if rows_per_markdown <= 0:
-        logger.warning(
-            f"错误：源 '{source_name}' 的每个Markdown文件数据行数 ({rows_per_markdown}) 必须大于0。跳过。"
-        )
-        return
+    # --- 核心逻辑修改在这里 ---
+    try:
+        # num_header_rows 现在是 [A, B] (inclusive)
+        start_header_idx, end_header_idx = num_header_rows[0], num_header_rows[1]
+        
+        # Python iloc切片是“含头不含尾”，所以 B 需要 +1
+        # B+1 是为了在切片时能包含住 end_header_idx 这一行
+        header_slice = slice(start_header_idx, end_header_idx + 1)
+        
+        if not (0 <= start_header_idx <= end_header_idx < len(df)):
+             logger.error(
+                f"错误：源 '{source_name}' 的表头参数 [A, B] = [{start_header_idx}, {end_header_idx}] 无效。索引超出范围。跳过。"
+            )
+             return
 
-    if num_header_rows[1] > len(df):
-        logger.warning(
-            f"警告：源 '{source_name}' 的总行数 ({len(df)}) 小于指定的表头行数 ({num_header_rows[1]})。"
-        )
-        logger.debug(f"将使用所有可用的行作为表头。")
-        header_block_df = df.copy()
-        data_block_df = pd.DataFrame(
-            columns=df.columns
-        )  # Ensure it has same columns for consistency
-    else:
-        header_block_df = df.iloc[num_header_rows[0]:num_header_rows[1]]
-        data_block_df = df.iloc[num_header_rows[1]:]
+        # 新的表头定义：一个连续的、包含首尾的块
+        header_block_df = df.iloc[header_slice]
+        
+        # 新的数据定义：从原始df中丢弃表头所在的行
+        data_block_df = df.drop(df.index[header_slice]).reset_index(drop=True)
+
+    except (IndexError, TypeError):
+        logger.error(f"错误：源 '{source_name}' 的表头参数 'num_header_rows' 格式不正确。应为 [A, B] 形式，例如 [2, 4]。跳过。")
+        return
+    # --- 核心逻辑修改结束 ---
 
     header_rows_as_lists = header_block_df.values.tolist()
 
     if data_block_df.empty:
+        logger.debug(f"  源 '{source_name}' 根据规则没有可用的数据行。")
+        # （这里的逻辑保持不变，用于处理只有表头的情况）
         if not header_block_df.empty and append_header:
-            logger.debug(
-                f"  源 '{source_name}' 只有表头数据（或表头行数覆盖了所有数据）。正在生成表头文件..."
-            )
-
-            markdown_content = generate_markdown_table_string(
+             markdown_content = generate_markdown_table_string(
                 header_rows_as_lists, [], num_columns
             )
-            file_name = f"{source_name}_header_only.md"
-            file_path = output_dir
-            try:
+             file_name = f"{source_name}_header_only.md"
+             file_path = os.path.join(output_dir, file_name)
+             try:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(markdown_content)
-                logger.debug(f"  已保存表头文件：'{file_path}'")
-            except Exception as e:
+                logger.debug(f"  已保存仅含表头的文件：'{file_path}'")
+             except Exception as e:
                 logger.debug(f"  保存文件 '{file_path}' 时出错: {e}")
-        else:
-            logger.debug(
-                f"  源 '{source_name}' 没有表头和数据（DataFrame完全为空），跳过。"
-            )
         return
 
+    # 后续的分页和文件生成逻辑与之前一致，无需改动
     num_data_rows_total = len(data_block_df)
-    # This case should be covered by data_block_df.empty, but as a safeguard:
-    if num_data_rows_total == 0:
-        logger.debug(
-            f"  源 '{source_name}' 没有数据行（在表头之后），已处理表头（如果存在）。"
-        )
-        return
-
     num_files_to_create = math.ceil(num_data_rows_total / rows_per_markdown)
-    if (
-        num_files_to_create == 0 and num_data_rows_total > 0
-    ):  # Should ideally not happen with ceil
+    if num_files_to_create == 0 and num_data_rows_total > 0:
         num_files_to_create = 1
 
     logger.debug(
@@ -142,19 +129,17 @@ def process_dataframe_to_markdown_files(
 
     for i in range(num_files_to_create):
         start_idx = i * rows_per_markdown
-        end_idx = min(
-            start_idx + rows_per_markdown, num_data_rows_total
-        )  # Ensure not to go out of bounds
+        end_idx = min(start_idx + rows_per_markdown, num_data_rows_total)
         current_data_chunk_df = data_block_df.iloc[start_idx:end_idx]
         current_data_chunk_as_lists = current_data_chunk_df.values.tolist()
 
         markdown_content = generate_markdown_table_string(
             header_rows_as_lists, current_data_chunk_as_lists, num_columns
         )
+        
         part_name = (
             f"part_{i + 1}" if num_files_to_create > 1 else "full"
-        )  # Simpler name if only one part
-
+        )
         file_name = f"{source_name}_{part_name}.md"
         file_path = os.path.join(output_dir, file_name)
 
@@ -166,7 +151,6 @@ def process_dataframe_to_markdown_files(
             )
         except Exception as e:
             logger.debug(f"  保存文件 '{file_path}' 时出错: {e}")
-
 
 # --- Excel Specific Processing ---
 def excel_file_to_markdown(excel_path, num_header_rows, rows_per_markdown, output_dir, append_header=True):
