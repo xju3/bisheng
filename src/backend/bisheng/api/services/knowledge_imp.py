@@ -38,7 +38,6 @@ from bisheng.api.services.patch_130 import (
     combine_multiple_md_files_to_raw_texts,
 )
 from bisheng.api.utils import md5_hash
-from bisheng.api.v1.schemas import ExcelRule
 from bisheng.cache.redis import redis_client
 from bisheng.cache.utils import CACHE_DIR
 from bisheng.cache.utils import file_download
@@ -59,7 +58,7 @@ from bisheng.interface.importing.utils import import_vectorstore
 from bisheng.interface.initialize.loading import instantiate_vectorstore
 from bisheng.settings import settings
 from bisheng.utils.embedding import decide_embeddings
-from bisheng.utils.minio_client import minio_client
+from bisheng.utils.minio_client import MinioClient, bucket as BUCKET_NAME
 
 filetype_load_map = {
     "txt": TextLoader,
@@ -146,34 +145,18 @@ class KnowledgeUtils:
                 chunk_info = json.loads(chunk_info)
             return chunk_info
 
-    @classmethod
-    def get_knowledge_file_image_dir(cls, doc_id: str, knowledge_id: int = None) -> str:
-        """ 获取文件图片在minio的存储目录 """
-        if knowledge_id:
-            return f"knowledge/images/{knowledge_id}/{doc_id}"
-        else:
-            return f"tmp/images/{doc_id}"
-
-    @classmethod
-    def get_knowledge_file_preview_dir(cls, doc_id: str, knowledge_id: int = None) -> str:
-        """ 获取预览文件在minio的存储目录 比如pptx需要转为pdf doc需要转为docx"""
-        if knowledge_id:
-            return f"knowledge/preview/{knowledge_id}/{doc_id}"
-        else:
-            return f"tmp/preview/{doc_id}"
-
 
 def put_images_to_minio(local_image_dir, knowledge_id, doc_id):
     if not os.path.exists(local_image_dir):
         return
-
+    minio_client = MinioClient()
     files = [f for f in os.listdir(local_image_dir)]
     for file_name in files:
         local_file_name = f"{local_image_dir}/{file_name}"
-        object_name = f"{KnowledgeUtils.get_knowledge_file_image_dir(doc_id, knowledge_id)}/{file_name}"
+        object_name = f"{knowledge_id}/{doc_id}/{file_name}"
         file_obj: BinaryIO = open(local_file_name, "rb")
         minio_client.upload_minio_file(
-            object_name=object_name, file=file_obj, bucket_name=minio_client.bucket
+            object_name=object_name, file=file_obj, bucket_name=BUCKET_NAME
         )
 
 
@@ -266,9 +249,10 @@ def delete_knowledge_file_vectors(file_ids: List[int], clear_minio: bool = True)
         # mino
         if clear_minio:
             # minio
-            minio_client.delete_minio(str(file.id))
+            minio = MinioClient()
+            minio.delete_minio(str(file.id))
             if file.object_name:
-                minio_client.delete_minio(str(file.object_name))
+                minio.delete_minio(str(file.object_name))
 
         knowledge = knowledgeid_dict.get(file.knowledge_id)
         # elastic
@@ -351,6 +335,7 @@ def addEmbedding(
     """将文件加入到向量和es库内"""
 
     logger.info("start process files")
+    minio_client = MinioClient()
     embeddings = decide_embeddings(model)
 
     logger.info("start init Milvus")
@@ -383,7 +368,6 @@ def addEmbedding(
                 extra_meta=extra_meta,
                 preview_cache_key=preview_cache_key,
                 # 增加的参数
-                retain_images=retain_images,
                 knowledge_id=knowledge_id,
                 enable_formula=enable_formula,
                 force_ocr=force_ocr,
@@ -456,11 +440,11 @@ def add_file_embedding(
         raise ValueError("es not found, please check your es config")
 
     # Convert split_rule string to dict if needed
-    excel_rule = ExcelRule()
+    excel_rule = {}
     if db_file.split_rule and isinstance(db_file.split_rule, str):
         split_rule = json.loads(db_file.split_rule)
         if "excel_rule" in split_rule:
-            excel_rule = ExcelRule(**split_rule["excel_rule"])
+            excel_rule = split_rule["excel_rule"]
     # # extract text from file
     texts, metadatas, parse_type, partitions = read_chunk_text(
         filepath,
@@ -513,6 +497,9 @@ def add_file_embedding(
         )
         db_file.bbox_object_name = f"partitions/{db_file.id}.json"
 
+    # 溯源必须依赖minio, 后期替换更通用的oss, 将转换为pdf的文件传到minio
+    minio_client.upload_minio(str(db_file.id), filepath)
+
     logger.info(
         f"chunk_split file={db_file.id} file_name={db_file.file_name} size={len(texts)}"
     )
@@ -536,18 +523,6 @@ def add_file_embedding(
     logger.info(f"add_complete file={db_file.id} file_name={db_file.file_name}")
     if preview_cache_key:
         KnowledgeUtils.delete_preview_cache(preview_cache_key)
-
-    logger.info(f"upload_preview_file_to_minio file={db_file.id} file_name={db_file.file_name}")
-    if db_file.file_name.endswith('.doc'):
-        preview_object_name = f'preview/{os.path.basename(filepath).rstrip(".doc")}.docx'
-        if minio_client.object_exists(preview_object_name):
-            minio_client.copy_object(preview_object_name, f'preview/{db_file.id}.docx',
-                                     minio_client.tmp_bucket, minio_client.bucket)
-    elif db_file.file_name.endswith(('.ppt', '.pptx')):
-        preview_object_name = f'preview/{os.path.basename(filepath).rstrip(".doc")}.pdf'
-        if minio_client.object_exists(preview_object_name):
-            minio_client.copy_object(preview_object_name, f'preview/{db_file.id}.pdf',
-                                     minio_client.tmp_bucket, minio_client.bucket)
 
 
 def add_text_into_vector(
@@ -586,30 +561,49 @@ def parse_partitions(partitions: List[Any]) -> Dict:
     return res
 
 
-def upload_preview_file_to_minio(original_file_path: str, preview_file_path: str):
-    if os.path.splitext(original_file_path)[0] != os.path.splitext(preview_file_path)[0]:
-        logger.error(f"原始文件和预览文件路径不匹配: {original_file_path} vs {preview_file_path}")
-    object_name = f"preview/{os.path.basename(preview_file_path)}"
-    with open(preview_file_path, "rb") as file_obj:
-        # 上传预览文件到minio
-        minio_client.upload_minio_file(
-            object_name=object_name, file=file_obj, bucket_name=minio_client.tmp_bucket
-        )
+def convert_file_for_preview(file_name, knowledge_id):
+    extension_name = file_name.split(".")[-1]
+    if extension_name not in ["doc", "pptx", "ppt"]:
+        return
+
+    origin_file_name = os.path.basename(file_name)
+    target_file_name = None
+    success = False
+
+    if extension_name == "doc":
+        success = convert_doc_to_docx(input_doc_path=file_name, output_dir=CACHE_DIR)
+        if success:
+            target_file_name = f"{origin_file_name.split('.')[0]}.docx"
+    else:
+        success = convert_ppt_to_pdf(input_path=file_name, output_dir=CACHE_DIR)
+        if success:
+            target_file_name = f"{origin_file_name.split('.')[0]}.pdf"
+
+    if not success:
+        logger.error(f"convert doc to docx failed: {file_name}")
+        return
+
+    minio_client = MinioClient()
+    object_name = f"{knowledge_id}/{target_file_name}"
+    file_obj: BinaryIO = open(f"{CACHE_DIR}/{target_file_name}", "rb")
+    minio_client.upload_minio_file(
+        object_name=object_name, file=file_obj, bucket_name=BUCKET_NAME
+    )
 
 
 def read_chunk_text(
-        input_file,
-        file_name,
-        separator: List[str],
-        separator_rule: List[str],
-        chunk_size: int,
-        chunk_overlap: int,
-        knowledge_id: Optional[int] = None,
-        retain_images: int = 1,
-        enable_formula: int = 1,
-        force_ocr: int = 1,
-        filter_page_header_footer: int = 0,
-        excel_rule: ExcelRule = None,
+    input_file,
+    file_name,
+    separator: List[str],
+    separator_rule: List[str],
+    chunk_size: int,
+    chunk_overlap: int,
+    knowledge_id: Optional[int] = None,
+    retain_images: int = 1,
+    enable_formula: int = 1,
+    force_ocr: int = 0,
+    filter_page_header_footer: int = 0,
+    excel_rule: Dict = None,
 ) -> (List[str], List[dict], str, Any):  # type: ignore
     """
     0：chunks text
@@ -620,9 +614,6 @@ def read_chunk_text(
     # 获取文档总结标题的llm
     try:
         llm = decide_knowledge_llm()
-        """
-            这行代码与上面获取llm有重复，需要优化.
-        """
         knowledge_llm = LLMService.get_knowledge_llm()
     except Exception as e:
         logger.exception("knowledge_llm_error:")
@@ -647,7 +638,11 @@ def read_chunk_text(
     if file_extension_name in ["xls", "xlsx", "csv"]:
         # set default values.
         if not excel_rule:
-            excel_rule = ExcelRule()
+            excel_rule = {}
+            excel_rule.header_start_row = 1
+            excel_rule.header_end_row = 1
+            excel_rule.slice_length = 10
+            excel_rule.append_header = 1
 
         # convert excel contents to markdown
         md_files_path, local_image_dir, doc_id = convert_file_to_md(
@@ -663,9 +658,7 @@ def read_chunk_text(
             append_header=excel_rule.append_header,
         )
         # skip following processes and return splited values.
-        return combine_multiple_md_files_to_raw_texts(
-            llm=llm, path=md_files_path, abstract_propmpt=knowledge_llm.abstract_prompt
-        )
+        return combine_multiple_md_files_to_raw_texts(llm = llm, path= md_files_path, abstract_prompt=knowledge_llm.ab)
 
     if file_extension_name in ["doc", "docx", "html", "mhtml", "ppt", "pptx"]:
 
@@ -674,60 +667,54 @@ def read_chunk_text(
             input_file = convert_doc_to_docx(
                 input_doc_path=input_file, output_dir=CACHE_DIR
             )
-            if not input_file:
-                raise Exception(f"failed to convert {file_name} to docx, please check backend log")
 
         md_file_name, local_image_dir, doc_id = convert_file_to_md(
             file_name=file_name, input_file_name=input_file, knowledge_id=knowledge_id
         )
 
-        if not md_file_name:
-            raise Exception(f"failed to parse {file_name}, please check backend log")
+        if md_file_name:
+            # save images to minio
+            if knowledge_id and local_image_dir and retain_images == 1:
+                put_images_to_minio(
+                    local_image_dir=local_image_dir,
+                    knowledge_id=knowledge_id,
+                    doc_id=doc_id,
+                )
+                convert_file_for_preview(
+                    file_name=input_file, knowledge_id=knowledge_id
+                )
 
-        # save images to minio
-        if local_image_dir and retain_images == 1:
-            put_images_to_minio(
-                local_image_dir=local_image_dir,
-                knowledge_id=knowledge_id,
-                doc_id=doc_id,
-            )
-        # 将pptx转为预览文件存到
-        if file_extension_name in ['ppt', 'pptx']:
-            ppt_pdf_path = convert_ppt_to_pdf(input_path=input_file, output_dir=CACHE_DIR)
-            if ppt_pdf_path:
-                upload_preview_file_to_minio(input_file, ppt_pdf_path)
-        elif file_extension_name == 'doc':
-            upload_preview_file_to_minio(input_file, input_file)
-
-        # 沿用原来的方法处理md文件
-        loader = filetype_load_map["md"](file_path=md_file_name)
-        documents = loader.load()
-
-    elif file_extension_name in ["txt", "md"]:
-        loader = filetype_load_map[file_extension_name](file_path=input_file)
-        documents = loader.load()
-    else:
-        if etl_for_lm_url:
-            etl4lm_settings = settings.get_knowledge().get("etl4lm", {})
-            loader = Etl4lmLoader(
-                file_name,
-                input_file,
-                unstructured_api_url=etl4lm_settings.get("url", ""),
-                ocr_sdk_url=etl4lm_settings.get("ocr_sdk_url", ""),
-                force_ocr=bool(force_ocr),
-                enable_formular=bool(enable_formula),
-                filter_page_header_footer=bool(filter_page_header_footer),
-            )
+            # 沿用原来的方法处理md文件
+            loader = filetype_load_map["md"](file_path=md_file_name)
             documents = loader.load()
-            parse_type = ParseType.ETL4LM.value
-            partitions = loader.partitions
-            partitions = parse_partitions(partitions)
         else:
-            # 在没有部署ETL4LM的情况下，处理IMAGE与PDF
-            if file_extension_name not in filetype_load_map:
-                raise Exception("类型不支持")
+            logger.error(f"failed to parse {file_name}")
+    else:
+        if file_extension_name in ["txt", "md"]:
             loader = filetype_load_map[file_extension_name](file_path=input_file)
             documents = loader.load()
+        else:
+            if etl_for_lm_url:
+                etl4lm_settings = settings.get_knowledge().get("etl4lm", {})
+                loader = Etl4lmLoader(
+                    file_name,
+                    input_file,
+                    unstructured_api_url=etl4lm_settings.get("url", ""),
+                    ocr_sdk_url=etl4lm_settings.get("ocr_sdk_url", ""),
+                    force_ocr=bool(force_ocr),
+                    enable_formular=bool(enable_formula),
+                    filter_page_header_footer=bool(filter_page_header_footer),
+                )
+                documents = loader.load()
+                parse_type = ParseType.ETL4LM.value
+                partitions = loader.partitions
+                partitions = parse_partitions(partitions)
+            else:
+                # 在没有部署ETL4LM的情况下，处理IMAGE与PDF
+                if file_extension_name not in filetype_load_map:
+                    raise Exception("类型不支持")
+                loader = filetype_load_map[file_extension_name](file_path=input_file)
+                documents = loader.load()
 
     logger.info(f"start_extract_title file_name={file_name}")
     if llm:
