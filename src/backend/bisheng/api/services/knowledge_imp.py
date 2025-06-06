@@ -610,6 +610,10 @@ def read_chunk_text(
     # 获取文档总结标题的llm
     try:
         llm = decide_knowledge_llm()
+        """
+            这行代码与上面获取llm有重复，需要优化.
+        """
+        knowledge_llm = LLMService.get_knowledge_llm()
     except Exception as e:
         logger.exception("knowledge_llm_error:")
         raise Exception(
@@ -716,7 +720,11 @@ def read_chunk_text(
         t = time.time()
         for one in documents:
             # 配置了相关llm的话，就对文档做总结
-            title = extract_title(llm, one.page_content)
+            title = extract_title(
+                llm=llm,
+                text=one.page_content,
+                abstract_prompt=knowledge_llm.abstract_prompt,
+            )
             # remove <think>.*</think> tag content
             title = re.sub("<think>.*</think>", "", title, flags=re.S).strip()
             one.metadata["title"] = title
