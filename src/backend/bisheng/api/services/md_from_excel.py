@@ -1,11 +1,13 @@
 import pandas as pd
+import csv
 from loguru import logger
 import openpyxl
 from typing import List
 from uuid import uuid4
 import os
 import math
-from pathlib import Path
+import chardet
+
 
 
 def unmerge_and_read_sheet(sheet_obj):
@@ -129,6 +131,7 @@ def process_dataframe_to_markdown_files(
             )
             file_name = f"{source_name}_header_only.md"
             file_path = os.path.join(output_dir, file_name)
+            file_path = os.path.join(output_dir, file_name)
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(markdown_content)
@@ -152,6 +155,7 @@ def process_dataframe_to_markdown_files(
     for i in range(num_files_to_create):
         start_idx = i * rows_per_markdown
         end_idx = min(start_idx + rows_per_markdown, num_data_rows_total)
+        end_idx = min(start_idx + rows_per_markdown, num_data_rows_total)
         current_data_chunk_df = data_block_df.iloc[start_idx:end_idx]
         current_data_chunk_as_lists = current_data_chunk_df.values.tolist()
 
@@ -170,7 +174,7 @@ def process_dataframe_to_markdown_files(
                 f"  已保存：'{file_path}' (含 {len(current_data_chunk_df)} 行数据)"
             )
         except Exception as e:
-            logger.debug(f"  保存文件 '{file_path}' 时出错: {e}")
+            logger.error(f"  保存文件 '{file_path}' 时出错: {e}")
 
 
 def excel_file_to_markdown(
@@ -180,7 +184,7 @@ def excel_file_to_markdown(
     try:
         workbook = openpyxl.load_workbook(excel_path, data_only=True, read_only=False)
     except Exception as e:
-        logger.debug(f"错误：无法加载Excel文件 '{excel_path}'。原因: {e}")
+        logger.error(f"错误：无法加载Excel文件 '{excel_path}'。原因: {e}")
         return
 
     for sheet_name in workbook.sheetnames:
@@ -189,7 +193,7 @@ def excel_file_to_markdown(
         unmerged_data_list_of_lists = unmerge_and_read_sheet(sheet_obj)
 
         if not unmerged_data_list_of_lists:
-            logger.debug(f"  工作表 '{sheet_name}' 为空或读取失败，跳过。")
+            logger.warning(f"  工作表 '{sheet_name}' 为空或读取失败，跳过。")
             continue
 
         df = pd.DataFrame(unmerged_data_list_of_lists)
@@ -202,9 +206,11 @@ def excel_file_to_markdown(
         process_dataframe_to_markdown_files(
             df,
             sheet_name,
+            sheet_name,
             num_header_rows,
             rows_per_markdown,
             output_dir,
+            append_header=append_header,
             append_header=append_header,
         )
     if workbook:
@@ -220,6 +226,7 @@ def csv_file_to_markdown(
     csv_encoding="utf-8",
     csv_delimiter=",",
     append_header=True,
+    append_header=True,
 ):
     logger.debug(f"\n开始处理CSV文件：'{csv_path}'")
     try:
@@ -227,24 +234,26 @@ def csv_file_to_markdown(
             csv_path,
             header=None,
             dtype=str,
-            encoding=csv_encoding,
-            sep=csv_delimiter,
+            encoding=detected_encoding,
+            sep=detected_delimiter,
             keep_default_na=False,
+            engine="python",
         )
+        df.fillna("", inplace=True)
         df.fillna("", inplace=True)
 
     except pd.errors.EmptyDataError:
-        logger.debug(f"错误：CSV文件 '{csv_path}' 为空。")
+        logger.error(f"错误：CSV文件 '{csv_path}' 为空。")
         return
     except FileNotFoundError:
-        logger.debug(f"错误：CSV文件 '{csv_path}' 未找到。")
+        logger.error(f"错误：CSV文件 '{csv_path}' 未找到。")
         return
     except Exception as e:
-        logger.debug(f"错误：无法读取CSV文件 '{csv_path}'。原因: {e}")
+        logger.error(f"错误：无法读取CSV文件 '{csv_path}'。原因: {e}")
         return
 
     if df.empty:
-        logger.debug(f"CSV文件 '{csv_path}' 为空或处理后为空，跳过。")
+        logger.warning(f"CSV文件 '{csv_path}' 为空或处理后为空，跳过。")
         return
 
     csv_filename_base = os.path.splitext(os.path.basename(csv_path))[0]
@@ -266,12 +275,14 @@ def convert_file_to_markdown(
     csv_encoding="utf-8",
     csv_delimiter=",",
     append_header=True,
+    append_header=True,
 ):
     """
     将 Excel 或 CSV 文件转换为多个 Markdown 文件。
+    将 Excel 或 CSV 文件转换为多个 Markdown 文件。
     """
     if not os.path.exists(input_file_path):
-        logger.debug(f"错误：输入文件 '{input_file_path}' 未找到。")
+        logger.error(f"错误：输入文件 '{input_file_path}' 未找到。")
         return
 
     if not os.path.exists(base_output_dir):
@@ -287,6 +298,11 @@ def convert_file_to_markdown(
             rows_per_markdown,
             base_output_dir,
             append_header,
+            input_file_path,
+            num_header_rows,
+            rows_per_markdown,
+            base_output_dir,
+            append_header,
         )
     elif file_extension == ".csv":
         csv_file_to_markdown(
@@ -297,9 +313,10 @@ def convert_file_to_markdown(
             csv_encoding,
             csv_delimiter,
             append_header,
+            append_header,
         )
     else:
-        logger.debug(
+        logger.error(
             f"错误：不支持的文件类型 '{file_extension}'。请提供 Excel (.xlsx, .xls) 或 CSV (.csv) 文件。"
         )
 
@@ -315,11 +332,11 @@ def handler(
     处理文件转换的主函数。
     """
     doc_id = uuid4()
-    md_file_name = f"{cache_dir}/{doc_id}"
+    md_file_dir = os.path.join(cache_dir, str(doc_id))
 
     convert_file_to_markdown(
         input_file_path=file_name,
-        base_output_dir=md_file_name,
+        base_output_dir=md_file_dir,
         num_header_rows=header_rows,
         rows_per_markdown=data_rows,
         append_header=append_header,

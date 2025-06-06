@@ -1,6 +1,5 @@
 import io
 import json
-from datetime import timedelta
 from typing import BinaryIO
 
 import minio
@@ -36,6 +35,8 @@ class MinioClient:
             secure=_MinioConf.schema,
             cert_check=_MinioConf.cert_check)
 
+        self._init_bucket_conf()
+
     def _init_bucket_conf(self):
         # create need bucket
         self.mkdir(new_bucket=self.bucket)
@@ -48,30 +49,22 @@ class MinioClient:
                 "Principal": {
                     "AWS": ["*"]
                 },
-                "Action": ["s3:GetBucketLocation"],
-                "Resource": ["arn:aws:s3:::test"]
-            }, {
-                "Effect": "Allow",
-                "Principal": {
-                    "AWS": ["*"]
-                },
-                "Action": ["s3:ListBucket"],
-                "Resource": ["arn:aws:s3:::test"],
-                "Condition": {
-                    "StringEquals": {
-                        "s3:prefix": ["*"]
-                    }
-                }
-            }, {
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{self.bucket}/**"]
+            }]
+        }
+        tmp_policy = {
+            "Version": "2012-10-17",
+            "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
                     "AWS": ["*"]
                 },
                 "Action": ["s3:GetObject"],
-                "Resource": ["arn:aws:s3:::test/**"]
+                "Resource": [f"arn:aws:s3:::{self.tmp_bucket}/**"]
             }]
         }
-        # set bucket public read policy
+
         try:
             policy = self.minio_client.get_bucket_policy(self.bucket)
         except Exception as e:
@@ -84,7 +77,7 @@ class MinioClient:
         except Exception as e:
             if str(e).find('NoSuchBucketPolicy') == -1:
                 raise e
-            self.minio_client.set_bucket_policy(self.tmp_bucket, json.dumps(anonymous_read_policy))
+            self.minio_client.set_bucket_policy(self.tmp_bucket, json.dumps(tmp_policy))
 
         # set tmp bucket lifecycle
         if not self.minio_client.get_bucket_lifecycle(self.tmp_bucket):
@@ -130,9 +123,9 @@ class MinioClient:
         # filepath "/" 开头会有nginx问题
         if object_name[0] == '/':
             object_name = object_name[1:]
-        return self.minio_share.presigned_get_object(bucket_name=bucket,
-                                                     object_name=object_name,
-                                                     expires=timedelta(days=7))
+        # 因为bucket都允许公开访问了，所以不再需要生成有期限的url
+        share_host = self.get_minio_share_host()
+        return f'{share_host}/{bucket}/{object_name}'
 
     def upload_tmp(self, object_name, data):
         self.minio_client.put_object(bucket_name=tmp_bucket,
@@ -167,17 +160,24 @@ class MinioClient:
         return self.minio_client.get_object(bucket_name=bucket, object_name=object_name)
 
     @classmethod
+    def get_minio_share_host(cls) -> str:
+        """
+        获取minio share host
+        """
+        minio_share = _MinioConf.sharepoint
+        if _MinioConf.schema:
+            return f'https://{minio_share}'
+        return f'http://{minio_share}'
+
+    @classmethod
     def clear_minio_share_host(cls, file_url: str):
         """
          TODO maybe 合理方案是部署一个支持https的minio配合前端使用
          抹去url中的minio share地址， 让前端通过nginx代理去访问资源
         """
-        minio_share = _MinioConf.sharepoint
-        old_host = f'http://{minio_share}'
-        if _MinioConf.schema:
-            old_host = f'https://{minio_share}'
+        share_host = cls.get_minio_share_host()
 
-        return file_url.replace(old_host, '')
+        return file_url.replace(share_host, '')
 
     def object_exists(self, bucket_name, object_name, **kwargs):
         try:
@@ -203,9 +203,12 @@ class MinioClient:
             source_object_name,
             target_object_name,
             bucket_name=bucket,
+            target_bucket_name=None
     ):
+        if target_bucket_name is None:
+            target_bucket_name = bucket_name
         copy_source = CopySource(bucket_name=bucket_name, object_name=source_object_name)
-        response = self.minio_client.copy_object(bucket_name, target_object_name, copy_source)
+        response = self.minio_client.copy_object(target_bucket_name, target_object_name, copy_source)
         return response
 
 

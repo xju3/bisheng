@@ -3,12 +3,13 @@
 import base64
 import logging
 import os
-import fitz
-import cv2
-from PIL import Image
 from typing import List
 from uuid import uuid4
+
+import cv2
+import fitz
 import requests
+from PIL import Image
 from langchain_community.docstore.document import Document
 from langchain_community.document_loaders.pdf import BasePDFLoader
 
@@ -25,16 +26,16 @@ def get_image_tag(results, part):
 def get_image_parts(partitions):
     page_dict = {}
     for part in partitions:
-        label = part["type"]
-        if label == "Image":
+        label = part['type']
+        if label == 'Image':
             bboxes = part.get("metadata", {}).get("extra_data", {}).get("bboxes", [])
             page = part.get("metadata", {}).get("extra_data", {}).get("pages", -1)
             element_id = part.get("element_id", None)
             if len(bboxes) == 0 or page == -1 or not element_id:
                 continue
             item = {}
-            item["bboxes"] = bboxes[0]
-            item["element_id"] = element_id
+            item['bboxes'] = bboxes[0]
+            item['element_id'] = element_id
             if page not in page_dict:
                 page_dict[page] = []
             page_dict[page].append(item)
@@ -48,15 +49,14 @@ def crop_image(image_file, item, cropped_imag_base_dir):
     x1, y1, x2, y2 = bbox
     cropped_img = img[y1:y2, x1:x2]
     file_name = f"{element_id}.png"
-    cv2.imwrite(os.path.join(cropped_imag_base_dir, file_name, cropped_img))
+    cv2.imwrite(os.path.join(cropped_imag_base_dir, file_name), cropped_img)
     return file_name
 
 
 def extract_pdf_images(file_name, page_dict, doc_id, knowledge_id):
-    from bisheng.worker.knowledge.file_worker import put_images_to_minio
+    from bisheng.api.services.knowledge_imp import put_images_to_minio
+    from bisheng.api.services.knowledge_imp import KnowledgeUtils
     from bisheng.cache.utils import CACHE_DIR
-    from bisheng.utils.minio_client import bucket as BUCKET_NAME
-
     result = {}
     base_dir = f"{CACHE_DIR}/{doc_id}"
     pdf_document = fitz.open(file_name)
@@ -68,12 +68,9 @@ def extract_pdf_images(file_name, page_dict, doc_id, knowledge_id):
         pdf_image_file_name = f"{base_dir}/pdf/{page_number}.png"
         image.save(pdf_image_file_name)
         for item in items:
-            cropped_image_file = crop_image(
-                pdf_image_file_name, item, cropped_image_base_dir
-            )
-            result[item["element_id"]] = (
-                f"{BUCKET_NAME}/{knowledge_id}/{doc_id}/{cropped_image_file}"
-            )
+            cropped_image_file = crop_image(pdf_image_file_name, item, cropped_image_base_dir)
+            result[item[
+                "element_id"]] = f"{KnowledgeUtils.get_knowledge_file_image_dir(doc_id, knowledge_id)}/{cropped_image_file}"
     put_images_to_minio(cropped_image_base_dir, knowledge_id, doc_id)
     return result
 
@@ -165,8 +162,8 @@ class Etl4lmLoader(BasePDFLoader):
         self.force_ocr = force_ocr
         self.enable_formular = enable_formular
         self.filter_page_header_footer = filter_page_header_footer
-        self.ocr_sdk_url = (ocr_sdk_url,)
-        self.headers = {"Content-Type": "application/json"}
+        self.ocr_sdk_url = ocr_sdk_url
+        self.headers = {'Content-Type': 'application/json'}
         self.file_name = file_name
         self.start = start
         self.n = n
@@ -181,15 +178,13 @@ class Etl4lmLoader(BasePDFLoader):
         parameters = {"start": self.start, "n": self.n}
         parameters.update(self.extra_kwargs)
         # TODO: add filter_page_header_footer into payload when elt4llm is ready.
-        payload = dict(
-            filename=os.path.basename(self.file_name),
-            b64_data=[b64_data],
-            mode="partition",
-            force_ocr=self.force_ocr,
-            enable_formula=self.enable_formular,
-            ocr_sdk_url=self.ocr_sdk_url,
-            parameters=parameters,
-        )
+        payload = dict(filename=os.path.basename(self.file_name),
+                       b64_data=[b64_data],
+                       mode='partition',
+                       force_ocr=self.force_ocr,
+                       enable_formula=self.enable_formular,
+                       ocr_sdk_url=self.ocr_sdk_url,
+                       parameters=parameters)
 
         resp = requests.post(
             self.unstructured_api_url, headers=self.headers, json=payload
