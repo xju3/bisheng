@@ -13,7 +13,7 @@ from bisheng.utils.minio_client import bucket as BUCKET_NAME
 from bisheng.cache.utils import CACHE_DIR
 
 
-def combine_multiple_md_files_to_raw_texts(llm, path):
+def combine_multiple_md_files_to_raw_texts(llm, path, abstract_propmpt=None):
     """
     combine multiple md file to raw texts including meta-data list.
     Args:
